@@ -1,4 +1,6 @@
 packageName,packageDetails,packagePrice,discountAvailable
+string,string,number,boolean
+"The name of the travel package.","A comprehensive description of the travel package, including itinerary and included services.","The total price of the travel package.","Indicates whether there is a discount available on the package."
 "Wine & Food Morocco Tour","12-day immersive journey staying in luxury hotels, featuring wildlife encounters and cultural performances. Includes cultural immersion, sunset experiences, and personalized itinerary planning. All accommodations and guided experiences included.",5278,false
 "Adventure Peru Explorer","12-day immersive journey staying in private villas, featuring wellness treatments and photography workshops. Includes behind-the-scenes tours, local interactions, and personalized itinerary planning. All accommodations and guided experiences included.",5378,false
 "Wellness Greek Islands Journey","12-day immersive journey staying in historic properties, featuring art workshops and meditation sessions. Includes traditional ceremonies, expert guides, and personalized itinerary planning. All accommodations and guided experiences included.",7771,true

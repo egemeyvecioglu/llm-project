@@ -1,4 +1,6 @@
 clinicName,description,averagePatientSatisfaction,acceptingNewPatients
+string,string,number,boolean
+"The official name of the clinic.","A detailed overview of the clinic, including specialties and services offered.","The average patient satisfaction score for the clinic.","Indicates whether the clinic is currently accepting new patients."
 "Evergreen Family Practice","A comprehensive family medicine clinic offering preventive care, chronic disease management, and pediatric services. Features modern facilities with an emphasis on holistic health approaches and patient education.",5,true
 "Metropolitan Cardiology Center","Specialized cardiac care facility equipped with state-of-the-art diagnostic equipment. Offers comprehensive cardiovascular services including preventive cardiology, interventional procedures, and rehabilitation programs.",5,false
 "Wellness Women's Health","Dedicated women's health clinic providing gynecological care, obstetrics, and preventive health services. Offers a supportive environment with focus on personalized care and patient comfort.",5,true

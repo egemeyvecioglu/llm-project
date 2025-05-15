@@ -13,6 +13,11 @@ import glob
 
 import weaviate.util
 
+from structured_outputs import (
+    ToolCall as ToolArguments,
+    OPERATOR_TO_METHOD,
+)
+
 ###############################################################################
 # env -------------------------------------------------------------------------
 ###############################################################################
@@ -27,84 +32,35 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
-
-###############################################################################
-# tool‑call schema (pydantic) --------------------------------------------------
-###############################################################################
-
-
-class _NumericFilter(BaseModel):
-    property_name: str
-    operator: str  # = < <= > >=
-    value: float
-
-
-class _TextFilter(BaseModel):
-    property_name: str
-    operator: str  # = LIKE
-    value: str
-
-
-class _BoolFilter(BaseModel):
-    property_name: str
-    operator: str  # = !=
-    value: bool
-
-
-class _NumericAgg(BaseModel):
-    property_name: str
-    metrics: str  # COUNT SUM MIN MAX MEAN
-
-
-class _TextAgg(BaseModel):
-    property_name: str
-    metrics: str  # COUNT TOP_OCCURRENCES TYPE
-    top_occurrences_limit: Optional[int] = None
-
-
-class _BoolAgg(BaseModel):
-    property_name: str
-    metrics: str  # COUNT TOTAL_TRUE PERCENTAGE_TRUE
-
-
-class ToolArguments(BaseModel):
-    collection_name: str
-    search_query: Optional[str] = None
-    integer_property_filter: Optional[_NumericFilter] = None
-    text_property_filter: Optional[_TextFilter] = None
-    boolean_property_filter: Optional[_BoolFilter] = None
-    integer_property_aggregation: Optional[_NumericAgg] = None
-    text_property_aggregation: Optional[_TextAgg] = None
-    boolean_property_aggregation: Optional[_BoolAgg] = None
-    groupby_property: Optional[str] = None
-
-
 ###############################################################################
 # helper ----------------------------------------------------------------------
 ###############################################################################
 
-_OP = {
-    "=": "equal",
-    "!=": "not_equal",
-    "<": "less_than",
-    "<=": "less_or_equal",
-    ">": "greater_than",
-    ">=": "greater_or_equal",
-    "LIKE": "like",
-}
-
 
 def _build_where(ta: ToolArguments):
+    """
+    Translate ToolArguments filters into a Weaviate Filter tree.
+    """
     parts: List[Filter] = []
+    # numeric ----------------------------------------------------------------
     if ta.integer_property_filter:
         f = ta.integer_property_filter
-        parts.append(getattr(Filter.by_property(f.property_name), _OP[f.operator])(f.value))
+        parts.append(
+            getattr(Filter.by_property(f.property_name), OPERATOR_TO_METHOD[f.operator])(f.value)
+        )
+    # text -------------------------------------------------------------------
     if ta.text_property_filter:
         f = ta.text_property_filter
-        parts.append(getattr(Filter.by_property(f.property_name), _OP[f.operator])(f.value))
+        parts.append(
+            getattr(Filter.by_property(f.property_name), OPERATOR_TO_METHOD[f.operator])(f.value)
+        )
+    # boolean ----------------------------------------------------------------
     if ta.boolean_property_filter:
         f = ta.boolean_property_filter
-        parts.append(getattr(Filter.by_property(f.property_name), _OP[f.operator])(f.value))
+        parts.append(
+            getattr(Filter.by_property(f.property_name), OPERATOR_TO_METHOD[f.operator])(f.value)
+        )
+
     if not parts:
         return None
     node = parts[0]
@@ -119,8 +75,56 @@ def _build_where(ta: ToolArguments):
 
 
 class WeaviateDatabase:
+    USE_CASES = {
+        "Restaurants": (
+            "This schema focuses on enabling users to discover restaurants based on a comprehensive profile. With semantic search, users can find restaurants by cuisine, ambiance, or special features."
+        ),
+        "Menus": (
+            "This schema assists in linking dining experiences with specific restaurants through their menus. Rich search features allow customers to find dishes tailored to dietary needs and price points."
+        ),
+        "Reservations": (
+            "This schema integrates with the restaurants by managing booking experiences. Semantic search of reservations can uncover trends in dining preferences and commonly requested meal attributes."
+        ),
+        "Clinics": (
+            "This schema aims to help users discover clinics based on services, specialties, and patient satisfaction. Semantic search can be used to find clinics by specific healthcare needs or service qualities."
+        ),
+        "Doctors": (
+            "This schema supports finding doctors based on expertise and experience. With semantic search, users can match their health concerns to the right professionals by exploring detailed profiles."
+        ),
+        "Appointments": (
+            "This schema is designed to manage and optimize booking experiences by allowing semantic searches for specific appointment details and patient booking patterns."
+        ),
+        "Courses": (
+            "This schema helps users find courses based on subject matter, duration, and enrollment status. Semantic search enhances discovery of courses by learning outcomes and topics covered."
+        ),
+        "Instructors": (
+            "This schema allows students and administrators to search for instructors based on experience and background. Rich biographies help in matching students with instructors who align with their learning style and academic goals."
+        ),
+        "Students": (
+            "This schema is designed to help institutions manage student data and preferences. Semantic search allows deeper insights into student research interests and progression paths."
+        ),
+        "TravelDestinations": (
+            "This schema allows users to explore travel destinations based on detailed descriptions and average costs. Semantic search can help users find destinations that match desired experiences or budget levels."
+        ),
+        "TravelAgents": (
+            "This schema supports customers in finding travel agents based on expertise and availability. Semantic search enables matching with agents who have specific regional knowledge or customer service excellence."
+        ),
+        "TravelPackages": (
+            "This schema helps travelers find travel packages based on detailed descriptions and pricing. Semantic search allows for discovering packages that align with preferences for activities or budget constraints."
+        ),
+        "Museums": (
+            "The Museums schema provides an enriching database for those interested in exploring detailed cultural exhibits. Semantic search capabilities highlight unique features and historical value of the museum's collections."
+        ),
+        "Exhibitions": (
+            "This schema helps users discover and explore various exhibitions based on thematic interest or visitor popularity, encouraging semantic searches for immersive cultural experiences."
+        ),
+        "ArtPieces": (
+            "The ArtPieces schema supports the discovery and assessment of art pieces across various museums. With semantic capabilities, users can explore artwork based on historical significance and monetary valuation."
+        ),
+    }
+
     def __init__(self):
-        self._client = weaviate.connect_to_local(
+        self.client = weaviate.connect_to_local(
             host=WEAVIATE_HOST,
             port=WEAVIATE_HTTP_PORT,
             grpc_port=WEAVIATE_GRPC_PORT,
@@ -135,6 +139,11 @@ class WeaviateDatabase:
         )
         logger.info("Connected to Weaviate at %s:%s", WEAVIATE_HOST, WEAVIATE_HTTP_PORT)
 
+    def __del__(self):
+        if self.client:
+            self.client.close()
+            logger.info("Weaviate connection closed.")
+
     # ------------------------------------------------------------------ schema
     def create_collection(
         self,
@@ -142,7 +151,7 @@ class WeaviateDatabase:
         properties: List[Dict[str, Any]],
         vectorizer: str | None = "sentence-transformers/all-MiniLM-L6-v2",
     ):
-        if name in self._client.collections.list_all():
+        if name in self.client.collections.list_all():
             return
 
         vectorizer_config = Configure.NamedVectors.text2vec_huggingface(
@@ -151,14 +160,50 @@ class WeaviateDatabase:
         )
 
         props = [
-            Property(name=p["name"], data_type=getattr(DataType, p["data_type"].upper()))
+            Property(
+                name=p["name"],
+                data_type=getattr(DataType, p["data_type"].upper()),
+                description=p["description"],
+            )
             for p in properties
         ]
-        self._client.collections.create(name, properties=props, vectorizer_config=None)
+        self.client.collections.create(
+            name, properties=props, description=self.USE_CASES[name], vectorizer_config=None
+        )
+
+    def get_collection_schemas(self):
+        """
+        Get all collection schemas from the Weaviate client and return a structured string
+        with collection name, description, and properties (with descriptions and data types).
+        """
+        collections = self.client.collections.list_all()
+        collections_desc = []
+        for collection in collections:
+            collection_str = ""
+            collection_schema = self.client.collections.get(collection)
+            config = collection_schema.config.get(simple=True)
+            name = config.name
+            description = config.description
+            collection_str += f"Collection: {name}\n"
+            collection_str += f"Description: {description}\n"
+            collection_str += "Properties:\n"
+            for prop in config.properties:
+                prop_name = prop.name
+                prop_desc = prop.description
+                prop_type = (
+                    prop.data_type.value
+                    if hasattr(prop.data_type, "value")
+                    else str(prop.data_type)
+                )
+                collection_str += f"  - {prop_name} ({prop_type}): {prop_desc}\n"
+
+            collections_desc.append(collection_str)
+
+        return "\n\n---\n\n".join(collections_desc)
 
     # ------------------------------------------------------------------ insert
     def insert(self, collection_name: str, objs: List[Dict[str, Any]]):
-        collection = self._client.collections.get(collection_name)
+        collection = self.client.collections.get(collection_name)
         try:
             with collection.batch.dynamic() as batch:
                 for i, data_row in enumerate(objs):
@@ -180,7 +225,7 @@ class WeaviateDatabase:
     # ------------------------------------------------------------------ query
     def query(self, **kwargs):
         ta = ToolArguments(**kwargs)
-        coll = self._client.collections.get(ta.collection_name)
+        coll = self.client.collections.get(ta.collection_name)
         where = _build_where(ta)
         if (
             ta.integer_property_aggregation
@@ -208,35 +253,6 @@ class WeaviateDatabase:
 ###############################################################################
 
 
-def infer_data_type(series: pd.Series) -> str:
-    """
-    Infer the appropriate data type for a column based on its content.
-
-    Args:
-        series: pandas Series containing column data
-
-    Returns:
-        String representation of the inferred data type ('text', 'number', or 'bool')
-    """
-    # Check if column contains only boolean values
-    if (
-        series.dropna()
-        .map(lambda x: str(x).lower() in ("true", "false", "1", "0", "yes", "no"))
-        .all()
-    ):
-        return "bool"
-
-    # Check if column can be converted to numeric
-    try:
-        pd.to_numeric(series, errors="raise")
-        return "number"
-    except (ValueError, TypeError):
-        pass
-
-    # Default to text
-    return "text"
-
-
 def get_schema_from_csv(csv_path: str) -> List[Dict[str, str]]:
     """
     Extract schema from a CSV file by analyzing its columns and data types.
@@ -253,8 +269,24 @@ def get_schema_from_csv(csv_path: str) -> List[Dict[str, str]]:
     # Generate schema properties
     properties = []
     for column in df.columns:
-        data_type = infer_data_type(df[column])
-        properties.append({"name": column, "data_type": data_type})
+        # second row is data type, read it
+        data_type = df.iloc[0][column]
+        # third row is the column descriptions, read it
+        column_description = df.iloc[1][column]
+
+        type_mapping = {
+            "string": "text",
+            "number": "int",
+            "boolean": "bool",
+        }
+
+        properties.append(
+            {
+                "name": column,
+                "data_type": type_mapping.get(data_type, "text"),
+                "description": column_description,
+            }
+        )
 
     return properties
 
@@ -305,8 +337,18 @@ def convert_value_by_type(value: str, data_type: str) -> Any:
 if __name__ == "__main__":
     db = WeaviateDatabase()
 
+    strng = db.get_collection_schemas()
+    print(strng)
+
+    exit()
+
     # Path to directory containing CSV files
-    DATA_DIR = os.path.join(os.path.dirname(__file__), "exp_data")
+    DATA_DIR = os.path.join(os.path.dirname(__file__), "collections_data")
+
+    import json
+
+    with open(os.path.join(DATA_DIR, "collection_descriptions.json"), "r") as f:
+        collection_descriptions = json.load(f)
 
     # Find all CSV files
     csv_files = glob.glob(os.path.join(DATA_DIR, "*.csv"))
@@ -338,19 +380,18 @@ if __name__ == "__main__":
             logger.warning(f"CSV file not found for collection {collection_name}: {csv_path}")
             continue
 
-        # Read data using pandas for better type handling
-        df = pd.read_csv(csv_path)
-
-        # Convert DataFrame to list of dictionaries
+        # Read CSV, skip second and third row (as they are not data) and insert data
+        df = pd.read_csv(csv_path, skiprows=[1, 2])
         rows = []
         for _, row in df.iterrows():
-            converted = {}
-            for prop in properties:
-                name = prop["name"]
-                data_type = prop["data_type"]
-                val = row.get(name)
-                converted[name] = convert_value_by_type(val, data_type)
-            rows.append(converted)
+            # Convert each value to the appropriate type
+            converted_row = {
+                col: convert_value_by_type(
+                    row[col], next((p["data_type"] for p in properties if p["name"] == col), "text")
+                )
+                for col in row.index
+            }
+            rows.append(converted_row)
 
         # Insert data into collection
         if rows:
@@ -359,3 +400,6 @@ if __name__ == "__main__":
             logger.info(f"No rows found in {csv_path}")
 
     logger.info("CSV data inserted – ready for testing.")
+
+    strng = db.get_collection_schemas()
+    print(strng)

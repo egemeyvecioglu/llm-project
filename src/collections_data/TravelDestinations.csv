@@ -1,4 +1,6 @@
 destinationName,destinationDescription,averageVisitCost,popular
+string,string,number,boolean
+"The name of the travel destination.","A detailed description of the travel destination including attractions, culture and climate.","The average cost of trip to the destination.","Indicates whether the destination is currently popular among tourists."
 "Venice, India","Tropical destination featuring remarkable museums and wildlife watching. Experience natural wonders and immerse yourself in local culture and traditions. Renowned for its monasteries and wildlife watching.",2975,true
 "Vietnam Forest","Desert destination featuring remarkable markets and diving sites. Experience pristine nature and immerse yourself in local culture and traditions. Distinguished by its art galleries and hiking trails.",2281,false
 "Porto, Croatia","Desert destination featuring remarkable monasteries and scenic drives. Experience rich history and immerse yourself in local culture and traditions. Famous for its sacred sites and wildlife watching.",1649,true

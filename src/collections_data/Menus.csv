@@ -1,4 +1,6 @@
 menuItem,itemDescription,price,isVegetarian
+string,string,number,boolean
+"The name of the menu item.","A detailed description of the menu item, including ingredients and preparation style.","The price of the menu item.","A flag to indicate if the menu item is vegetarian."
 "Coq au Vin","Traditional French chicken braised in wine, with pearl onions, mushrooms, and fresh herbs. Served with garlic mashed potatoes.",33,false
 "Dragon Roll","Premium sushi roll with tempura shrimp, avocado, and cucumber, topped with spicy tuna, eel sauce, and tobiko.",19,false
 "Harvest Buddha Bowl","Seasonal roasted vegetables, quinoa, chickpeas, and fresh greens, topped with tahini dressing and crispy chickpeas.",17,true

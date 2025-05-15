@@ -1,4 +1,6 @@
 name,description,averageRating,openNow
+string,string,number,boolean
+"The name of the restaurant.","A detailed description and summary of the restaurant, including cuisine type and ambiance.","The average rating score out of 5 for the restaurant.","A flag indicating whether the restaurant is currently open."
 "Red Fork","rustic Lebanese restaurant featuring hand-painted murals and rooftop seating. Offering authentic dishes in a rustic setting.",4,true
 "Green Fork","upscale Mexican restaurant featuring vintage decor and live music. Offering authentic dishes in a upscale setting.",5,true
 "Wild Plate","vibrant French restaurant featuring open kitchen concept and waterfront views. Offering authentic dishes in a vibrant setting.",5,true
