@@ -171,12 +171,11 @@ class WeaviateDatabase:
             name, properties=props, description=self.USE_CASES[name], vectorizer_config=None
         )
 
-    def get_collection_schemas(self):
+    def get_collection_schemas(self, collections):
         """
         Get all collection schemas from the Weaviate client and return a structured string
         with collection name, description, and properties (with descriptions and data types).
         """
-        collections = self.client.collections.list_all()
         collections_desc = []
         for collection in collections:
             collection_str = ""
@@ -199,7 +198,7 @@ class WeaviateDatabase:
 
             collections_desc.append(collection_str)
 
-        return "\n\n---\n\n".join(collections_desc)
+        return "\n".join(collections_desc)
 
     # ------------------------------------------------------------------ insert
     def insert(self, collection_name: str, objs: List[Dict[str, Any]]):
@@ -336,8 +335,9 @@ def convert_value_by_type(value: str, data_type: str) -> Any:
 
 if __name__ == "__main__":
     db = WeaviateDatabase()
+    collections = db.client.collections.list_all()
 
-    strng = db.get_collection_schemas()
+    strng = db.get_collection_schemas(collections)
     print(strng)
 
     exit()
@@ -401,5 +401,5 @@ if __name__ == "__main__":
 
     logger.info("CSV data inserted – ready for testing.")
 
-    strng = db.get_collection_schemas()
+    strng = db.get_collection_schemas(collections)
     print(strng)
