@@ -1,141 +1,265 @@
-from __future__ import annotations
-
-"""evaluate.py – minimal scorer for DBGorilla
-
-Usage
------
-    python evaluate.py predictions.json
-
-*The ground‑truth file path is fixed inside the script*
-(`eval/ground_truth.json`).  You only pass the
-**predictions JSON** you want to score.
-
-* `predictions.json` – JSON list (or {"predictions": [...]}) of 315 dicts, in
-  the same order as the ground truth.
-
-The script prints overall **exact‑match accuracy** and **mean AST score**.
-"""
-
-import json
 import sys
+import json
 from pathlib import Path
 from typing import Any, Dict, List
 
-# ----------------------------------------------------------------------------
-# Config
-# ----------------------------------------------------------------------------
-GT_PATH = Path(__file__).resolve().parent / "eval" / "ground_truth.json"
 
-WEIGHTS = {
-    "collection": 0.40,
-    "search_query": 0.15,
-    "filters": 0.15,
-    "aggregation": 0.15,
-    "group_by": 0.15,
-}
-
-FILTER_KEYS = {
-    "integer_property_filter",
-    "text_property_filter",
-    "boolean_property_filter",
-}
-
-AGG_KEYS = {
-    "integer_property_aggregation",
-    "text_property_aggregation",
-    "boolean_property_aggregation",
-}
-
-# ----------------------------------------------------------------------------
-# Helpers
-# ----------------------------------------------------------------------------
-
-
-def _eq(a, b):
-    if a in (None, {}, []) and b in (None, {}, []):
-        return True
-    return a == b
-
-
-def _filters_equal(gt: Dict[str, Any], pr: Dict[str, Any]) -> bool:
-    return all(_eq(gt.get(k), pr.get(k)) for k in FILTER_KEYS)
-
-
-def _aggs_equal(gt: Dict[str, Any], pr: Dict[str, Any]) -> bool:
-    return all(_eq(gt.get(k), pr.get(k)) for k in AGG_KEYS)
-
-
-def _score_record(gt: Dict[str, Any], pr: Dict[str, Any]):
-    detail = {
-        "collection": gt.get("target_collection") == pr.get("target_collection"),
-        "search_query": _eq(gt.get("search_query"), pr.get("search_query")),
-        "filters": _filters_equal(gt, pr),
-        "aggregation": _aggs_equal(gt, pr),
-        "group_by": _eq(gt.get("groupby_property"), pr.get("groupby_property")),
+class DBQueryScorer:
+    WEIGHTS = dict(
+        collection=0.40, search_query=0.15, filters=0.15, aggregation=0.15, group_by=0.15
+    )
+    FILTER_KEYS = {"integer_property_filter", "text_property_filter", "boolean_property_filter"}
+    AGG_KEYS = {
+        "integer_property_aggregation",
+        "text_property_aggregation",
+        "boolean_property_aggregation",
     }
-    ast = sum(w for k, w in WEIGHTS.items() if detail[k])
-    return ast, all(detail.values())
+
+    def __init__(self, gt_path: Path):
+        self.gt_path = gt_path
+        self.gt_idx = self._index(self._load(self.gt_path))
+
+    @classmethod
+    def _score_record(cls, gt_q: Dict[str, Any], pr_q: Dict[str, Any]):
+        if not gt_q.get("target_collection") == pr_q.get("target_collection"):
+            return 0, 0
+
+        score = cls.WEIGHTS["collection"]
+
+        if bool(gt_q.get("search_query")) == bool(pr_q.get("search_query")):
+            score += cls.WEIGHTS["search_query"]
+
+        filters_score = 0
+        filters_count = 0
+        for key in cls.FILTER_KEYS:
+            if gt_q.get(key) == pr_q.get(key):
+                filters_score += 1
+            filters_count += 1
+
+        score += cls.WEIGHTS["filters"] * (filters_score / filters_count)
+
+        aggs_score = 0
+        aggs_count = 0
+        for key in cls.AGG_KEYS:
+            if gt_q.get(key) == pr_q.get(key):
+                aggs_score += 1
+            aggs_count += 1
+
+        score += cls.WEIGHTS["aggregation"] * (aggs_score / aggs_count)
+
+        if gt_q.get("groupby_property") == pr_q.get("groupby_property"):
+            score += cls.WEIGHTS["group_by"]
+
+        exact = score >= 0.95
+        return score, exact
+
+    @staticmethod
+    def _load(path: Path):
+        with path.open(encoding="utf-8") as f:
+            data = json.load(f)
+        return data["predictions"] if isinstance(data, dict) and "predictions" in data else data
+
+    @staticmethod
+    def _index(records):
+        return {r["query"]["corresponding_natural_language_query"]: r["query"] for r in records}
+
+    def evaluate_ast_and_exact(self, pred_file: Path):
+        pred_idx = self._index(self._load(pred_file))
+
+        exact_hits = ast_total = 0.0
+        gt_items = list(self.gt_idx.items())
+
+        for nl_query, gt_q in gt_items:
+            pr_q = pred_idx.get(nl_query)
+            if pr_q is None:
+                continue  # absent counts as miss
+            ast, exact = self._score_record(gt_q, pr_q)
+            ast_total += ast
+            exact_hits += exact
+
+        n = len(gt_items)
+
+        print(f"Exact-match accuracy: {exact_hits / n:.2%}")
+        print(f"Mean AST score     : {ast_total  / n:.3f}")
+
+    def evaluate_collection_routing(self, pred_file: Path):
+        pred_records = self._load(pred_file)
+        gt_items = list(self.gt_idx.items())
+
+        hits = total = 0
+        pred_idx = {r["query"]["corresponding_natural_language_query"]: r for r in pred_records}
+        for nl_query, gt_q in gt_items:
+            rec = pred_idx.get(nl_query)
+            if rec is None:
+                continue
+            pr_q = rec["query"]
+            if gt_q.get("target_collection") == pr_q.get("target_collection"):
+                hits += 1
+            total += 1
+        print(f"Collection Routing Accuracy: {hits / total:.2%} ({hits}/{total})")
+
+    def evaluate_component_accuracy(self, pred_file: Path):
+        pred_records = self._load(pred_file)
+        gt_items = list(self.gt_idx.items())
+        pred_idx = {r["query"]["corresponding_natural_language_query"]: r for r in pred_records}
+
+        # Components
+        keys = [
+            "search_query",
+            "integer_property_filter",
+            "text_property_filter",
+            "boolean_property_filter",
+            "integer_property_aggregation",
+            "text_property_aggregation",
+            "boolean_property_aggregation",
+            "groupby_property",
+        ]
+        hits = {k: 0 for k in keys}
+        total = {k: 0 for k in keys}
+
+        for nl_query, gt_q in gt_items:
+            rec = pred_idx.get(nl_query)
+            if rec is None:
+                continue
+            pr_q = rec["query"]
+
+            # search_query (boolean presence)
+            total["search_query"] += 1
+            if bool(gt_q.get("search_query")) == bool(pr_q.get("search_query")):
+                hits["search_query"] += 1
+
+            # Each filter and aggregation (exact match)
+            for k in [
+                "integer_property_filter",
+                "text_property_filter",
+                "boolean_property_filter",
+                "integer_property_aggregation",
+                "text_property_aggregation",
+                "boolean_property_aggregation",
+            ]:
+                total[k] += 1
+                if gt_q.get(k) == pr_q.get(k):
+                    hits[k] += 1
+
+            # groupby_property
+            total["groupby_property"] += 1
+            if gt_q.get("groupby_property") == pr_q.get("groupby_property"):
+                hits["groupby_property"] += 1
+
+        for k in keys:
+            acc = hits[k] / total[k] if total[k] else 0
+            print(f"{k} Accuracy: {acc:.2%} ({hits[k]}/{total[k]})")
+
+    def evaluate_no_tool_selected_rate(self, pred_file: Path):
+        pred_records = self._load(pred_file)
+        total = len(pred_records)
+        no_tool_count = sum(1 for r in pred_records if not r.get("tool_called"))
+        print(f"No Tool Selected Rate: {no_tool_count / total:.2%} ({no_tool_count}/{total})")
+
+    def evaluate_by_complexity(self, pred_file: Path):
+        pred_idx = self._index(self._load(pred_file))
+        buckets = {"simple": [], "moderate": [], "complex": []}
+
+        def _piece_count(q: Dict[str, Any]) -> int:
+            """Return how many argument *pieces* the GT query uses."""
+            c = 0
+            if q.get("search_query"):
+                c += 1
+            for k in self.FILTER_KEYS:
+                if q.get(k):
+                    c += 1
+            for k in self.AGG_KEYS:
+                if q.get(k):
+                    c += 1
+            if q.get("groupby_property"):
+                c += 1
+            return c
+
+        for nl_query, gt_q in self.gt_idx.items():
+            pr_q = pred_idx.get(nl_query)
+
+            pieces = _piece_count(gt_q)
+            bucket = "simple" if pieces == 1 else "moderate" if pieces == 2 else "complex"
+
+            # use _score_record to decide exact-match (index 1 of tuple)
+            exact = self._score_record(gt_q, pr_q)[1]
+            buckets[bucket].append(exact)
+
+        for name in ("simple", "moderate", "complex"):
+            total = len(buckets[name])
+            acc = sum(buckets[name]) / total if total else 0
+            print(f"{name.capitalize()} Exact-Match: {acc:.2%} ({sum(buckets[name])}/{total})")
+
+    def evaluate_by_schema(self, pred_file: Path):
+        schema_groups = {
+            "Restaurants": ["Restaurants", "Reservations", "Menus"],
+            "Health Clinics": ["Clinics", "Appointments", "Doctors"],
+            "Courses": ["Courses", "Instructors", "Students"],
+            "Travel Planning": ["TravelAgents", "TravelDestinations", "TravelPackages"],
+            "Visual Art": ["Museums", "Exhibitions", "ArtPieces"],
+        }
+
+        pred_idx = self._index(self._load(pred_file))
+        # Create reverse mapping from collection to schema group
+        collection_to_group = {}
+        for group, collections in schema_groups.items():
+            for collection in collections:
+                collection_to_group[collection] = group
+
+        # Initialize scores per schema group
+        group_scores = {group: [] for group in schema_groups}
+
+        # Calculate exact scores for each query grouped by schema
+        for nl_query, gt_q in self.gt_idx.items():
+            pr_q = pred_idx.get(nl_query)
+            if pr_q is None:
+                continue
+
+            target_collection = gt_q.get("target_collection")
+            schema_group = collection_to_group.get(target_collection)
+            if schema_group:
+                exact = self._score_record(gt_q, pr_q)[1]
+                group_scores[schema_group].append(exact)
+
+        # Print results for each schema group
+        for group, scores in group_scores.items():
+            total = len(scores)
+            if total > 0:
+                exact_matches = sum(scores)
+                accuracy = exact_matches / total
+                print(f"{group} Schema Exact-Match: {accuracy:.2%} ({exact_matches}/{total})")
+
+    # -------------------------------------------------
+    # Convenience wrapper: run every metric in one call
+    # -------------------------------------------------
+    def evaluate_all(self, pred_file: Path):
+        print("\n=== Exact-Match & AST ===")
+        self.evaluate_ast_and_exact(pred_file)
+
+        print("\n=== No-Tool-Selected Rate ===")
+        self.evaluate_no_tool_selected_rate(pred_file)
+
+        print("\n=== Component-wise Accuracy ===")
+        self.evaluate_component_accuracy(pred_file)
+
+        print("\n=== Collection Routing Accuracy ===")
+        self.evaluate_collection_routing(pred_file)
+
+        print("\n=== Complexity Buckets ===")
+        self.evaluate_by_complexity(pred_file)
+
+        print("\n=== Schema-wise Accuracy ===")
+        self.evaluate_by_schema(pred_file)
 
 
-def _load_gt() -> List[Dict[str, Any]]:
-    if not GT_PATH.exists():
-        print("Ground‑truth file not found at", GT_PATH, file=sys.stderr)
-        sys.exit(1)
-    with GT_PATH.open("r", encoding="utf-8") as f:
-        return [rec["query"] for rec in json.load(f)]
-
-
-def _load_preds(path: Path) -> List[Dict[str, Any]]:
-    with path.open("r", encoding="utf-8") as f:
-        data = json.load(f)
-    if isinstance(data, dict) and "predictions" in data:
-        data = data["predictions"]
-    if not isinstance(data, list):
-        print('Predictions file must be a list or {"predictions": [...] }', file=sys.stderr)
-        sys.exit(1)
-    return data
-
-
-# ----------------------------------------------------------------------------
-# Entry‑point
-# ----------------------------------------------------------------------------
-
-
-def main():
-    if len(sys.argv) != 2:
-        print("Usage: python evaluate.py predictions.json", file=sys.stderr)
-        sys.exit(1)
-
-    pred_file = Path(sys.argv[1])
-    if not pred_file.exists():
-        print("Predictions file not found:", pred_file, file=sys.stderr)
-        sys.exit(1)
-
-    gt = _load_gt()
-    preds = _load_preds(pred_file)
-
-    if len(gt) != len(preds):
-        print(
-            "Length mismatch:",
-            len(gt),
-            "ground truth vs",
-            len(preds),
-            "predictions",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-    exact_hits = 0
-    ast_total = 0.0
-    for g, p in zip(gt, preds):
-        ast, exact = _score_record(g, p)
-        ast_total += ast
-        exact_hits += exact
-
-    n = len(gt)
-    print("Exact‑match accuracy:", f"{exact_hits / n:.2%}")
-    print("Mean AST score     :", f"{ast_total / n:.3f}")
-
-
+# Usage example:
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) != 2:
+        sys.exit("Usage: python evaluate.py predictions.json")
+
+    gt_path = Path(__file__).resolve().parent / "ground_truth.json"
+    pred_path = Path(sys.argv[1])
+
+    scorer = DBQueryScorer(gt_path)
+
+    scorer.evaluate_all(pred_path)
