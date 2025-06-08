@@ -1,0 +1,8 @@
+anthropic==0.52.2
+ollama==0.5.1
+openai==1.84.0
+pandas==2.3.0
+protobuf==6.31.1
+pydantic==2.11.5
+python-dotenv==1.1.0
+weaviate_client==4.11.1
