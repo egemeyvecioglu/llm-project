@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Literal
 from pydantic import BaseModel, Field
 import json
 from llm import OpenAIClient
@@ -33,6 +33,7 @@ def get_query_tool_schema(collections_list):
                             "operator": {"type": "string", "enum": ["=", "<", ">", "<=", ">="]},
                             "value": {"type": "number"},
                         },
+                        "required": ["property_name", "operator", "value"],
                     },
                     "text_property_filter": {
                         "type": "object",
@@ -42,6 +43,7 @@ def get_query_tool_schema(collections_list):
                             "operator": {"type": "string", "enum": ["=", "LIKE"]},
                             "value": {"type": "string"},
                         },
+                        "required": ["property_name", "operator", "value"],
                     },
                     "boolean_property_filter": {
                         "type": "object",
@@ -51,6 +53,7 @@ def get_query_tool_schema(collections_list):
                             "operator": {"type": "string", "enum": ["=", "!="]},
                             "value": {"type": "boolean"},
                         },
+                        "required": ["property_name", "operator", "value"],
                     },
                     "integer_property_aggregation": {
                         "type": "object",
@@ -71,6 +74,7 @@ def get_query_tool_schema(collections_list):
                                 ],
                             },
                         },
+                        "required": ["property_name", "metrics"],
                     },
                     "text_property_aggregation": {
                         "type": "object",
@@ -83,6 +87,7 @@ def get_query_tool_schema(collections_list):
                             },
                             "top_occurrences_limit": {"type": "integer"},
                         },
+                        "required": ["property_name", "metrics"],
                     },
                     "boolean_property_aggregation": {
                         "type": "object",
@@ -101,6 +106,7 @@ def get_query_tool_schema(collections_list):
                                 ],
                             },
                         },
+                        "required": ["property_name", "metrics"],
                     },
                     "groupby_property": {
                         "type": "string",
@@ -170,19 +176,19 @@ OPERATOR_TO_METHOD: Dict[Operator, str] = {
 # ──────────────────────────────────────────────────────────────────────────────
 class IntPropertyFilter(BaseModel):
     property_name: str
-    operator: Operator
-    value: int
+    operator: Literal["=", "<", ">", "<=", ">="]
+    value: float | int
 
 
 class TextPropertyFilter(BaseModel):
     property_name: str
-    operator: Operator
+    operator: Literal["=", "LIKE"]
     value: str
 
 
 class BooleanPropertyFilter(BaseModel):
     property_name: str
-    operator: Operator
+    operator: Literal["=", "!="]
     value: bool
 
 
